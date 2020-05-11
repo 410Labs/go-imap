@@ -36,9 +36,13 @@ func (cmd *Select) Handle(conn Conn) error {
 
 	status, err := mbox.Status(items)
 	if err != nil {
+		mbox.Close()
 		return err
 	}
 
+	if ctx.Mailbox != nil {
+		ctx.Mailbox.Close()
+	}
 	ctx.Mailbox = mbox
 	ctx.MailboxReadOnly = cmd.ReadOnly || status.ReadOnly
 
@@ -110,6 +114,7 @@ func (cmd *Subscribe) Handle(conn Conn) error {
 	if err != nil {
 		return err
 	}
+	defer mbox.Close()
 
 	return mbox.SetSubscribed(true)
 }
@@ -128,6 +133,7 @@ func (cmd *Unsubscribe) Handle(conn Conn) error {
 	if err != nil {
 		return err
 	}
+	defer mbox.Close()
 
 	return mbox.SetSubscribed(false)
 }
@@ -153,21 +159,14 @@ func (cmd *List) Handle(conn Conn) error {
 		}
 	})()
 
-	mailboxes, err := ctx.User.ListMailboxes(cmd.Subscribed)
+	mboxInfo, err := ctx.User.ListMailboxes(cmd.Subscribed)
 	if err != nil {
 		// Close channel to signal end of results
 		close(ch)
 		return err
 	}
 
-	for _, mbox := range mailboxes {
-		info, err := mbox.Info()
-		if err != nil {
-			// Close channel to signal end of results
-			close(ch)
-			return err
-		}
-
+	for _, info := range mboxInfo {
 		// An empty ("" string) mailbox name argument is a special request to return
 		// the hierarchy delimiter and the root name of the name given in the
 		// reference.
@@ -181,7 +180,10 @@ func (cmd *List) Handle(conn Conn) error {
 		}
 
 		if info.Match(cmd.Reference, cmd.Mailbox) {
-			ch <- info
+			// Do not take pointer to the loop variable.
+			info := info
+
+			ch <- &info
 		}
 	}
 	// Close channel to signal end of results
@@ -204,6 +206,7 @@ func (cmd *Status) Handle(conn Conn) error {
 	if err != nil {
 		return err
 	}
+	defer mbox.Close()
 
 	status, err := mbox.Status(cmd.Items)
 	if err != nil {
@@ -241,6 +244,7 @@ func (cmd *Append) Handle(conn Conn) error {
 	} else if err != nil {
 		return err
 	}
+	defer mbox.Close()
 
 	if err := mbox.CreateMessage(cmd.Flags, cmd.Date, cmd.Message); err != nil {
 		return err
